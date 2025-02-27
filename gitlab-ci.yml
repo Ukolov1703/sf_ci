@@ -1,0 +1,46 @@
+stages:
+  - deploy
+  - test
+
+variables:
+  CONTAINER_NAME: "nginx-ci"
+  HOST_PORT: 9889
+  NGINX_IMAGE: "nginx:1.23"
+
+deploy:
+  stage: deploy
+  script:
+    - echo "Starting Nginx container..."
+    - docker run -d --name $CONTAINER_NAME -p $HOST_PORT:80 -v $(pwd)/index.html:/usr/share/nginx/html/index.html $NGINX_IMAGE
+  only:
+    changes:
+      - index.html
+
+test:
+  stage: test
+  script:
+    - echo "Testing Nginx container..."
+    - |
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$HOST_PORT)
+      if [ "$HTTP_CODE" != "200" ]; then
+        echo "Error: HTTP code is $HTTP_CODE (expected 200)"
+        exit 1
+      fi
+    - |
+      MD5_LOCAL=$(md5sum index.html | awk '{print $1}')
+      MD5_REMOTE=$(curl -s http://localhost:$HOST_PORT | md5sum | awk '{print $1}')
+      if [ "$MD5_LOCAL" != "$MD5_REMOTE" ]; then
+        echo "Error: MD5 sums do not match (local: $MD5_LOCAL, remote: $MD5_REMOTE)"
+        exit 1
+      fi
+  only:
+    changes:
+      - index.html
+
+cleanup:
+  stage: test
+  script:
+    - echo "Stopping and removing Nginx container..."
+    - docker stop $CONTAINER_NAME
+    - docker rm $CONTAINER_NAME
+  when: always
